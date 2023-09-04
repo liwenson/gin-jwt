@@ -253,18 +253,19 @@ func TestLoginHandler(t *testing.T) {
 		Authorizator: func(user interface{}, c *gin.Context) bool {
 			return true
 		},
-		LoginResponse: func(c *gin.Context, code int, token string, t time.Time) {
+		LoginResponse: func(c *gin.Context, code int, token, refreshToken string, t time.Time) {
 			cookie, err := c.Cookie("jwt")
 			if err != nil {
 				log.Println(err)
 			}
 
 			c.JSON(http.StatusOK, gin.H{
-				"code":    http.StatusOK,
-				"token":   token,
-				"expire":  t.Format(time.RFC3339),
-				"message": "login successfully",
-				"cookie":  cookie,
+				"code":         http.StatusOK,
+				"token":        token,
+				"refreshToken": refreshToken,
+				"expire":       t.Format(time.RFC3339),
+				"message":      "login successfully",
+				"cookie":       cookie,
 			})
 		},
 		SendCookie:   true,

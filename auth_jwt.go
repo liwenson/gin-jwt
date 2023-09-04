@@ -68,7 +68,10 @@ type GinJWTMiddleware struct {
 	Unauthorized func(c *gin.Context, code int, message string)
 
 	// User can define own LoginResponse func.
-	LoginResponse func(c *gin.Context, code int, message string, refreshTokenString string, time time.Time)
+	LoginResponse func(c *gin.Context, code int, message string, time time.Time)
+
+	// User can define own LoginResponse func.
+	LoginResponse2 func(c *gin.Context, code int, message string, refreshTokenString string, time time.Time)
 
 	// User can define own LogoutResponse func.
 	LogoutResponse func(c *gin.Context, code int)
@@ -155,6 +158,9 @@ type GinJWTMiddleware struct {
 
 	// ParseOptions allow to modify jwt's parser methods
 	ParseOptions []jwt.ParserOption
+
+	// 双token
+	BothToken bool
 }
 
 var (
@@ -338,12 +344,23 @@ func (mw *GinJWTMiddleware) MiddlewareInit() error {
 	}
 
 	if mw.LoginResponse == nil {
-		mw.LoginResponse = func(c *gin.Context, code int, token, refreshToken string, expire time.Time) {
+
+		if mw.BothToken {
+			mw.LoginResponse2 = func(c *gin.Context, code int, token, refreshToken string, expire time.Time) {
+				c.JSON(http.StatusOK, gin.H{
+					"code":         http.StatusOK,
+					"token":        token,
+					"refreshToken": refreshToken,
+					"expire":       expire.Format(time.RFC3339),
+				})
+			}
+		}
+
+		mw.LoginResponse = func(c *gin.Context, code int, token string, expire time.Time) {
 			c.JSON(http.StatusOK, gin.H{
-				"code":         http.StatusOK,
-				"token":        token,
-				"refreshToken": refreshToken,
-				"expire":       expire.Format(time.RFC3339),
+				"code":   http.StatusOK,
+				"token":  token,
+				"expire": expire.Format(time.RFC3339),
 			})
 		}
 	}
@@ -550,7 +567,10 @@ func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
 		)
 	}
 
-	mw.LoginResponse(c, http.StatusOK, tokenString, refreshTokenString, expire)
+	if mw.BothToken {
+		mw.LoginResponse2(c, http.StatusOK, tokenString, refreshTokenString, expire)
+	}
+	mw.LoginResponse(c, http.StatusOK, tokenString, expire)
 }
 
 // LogoutHandler can be used by clients to remove the jwt cookie (if set)
