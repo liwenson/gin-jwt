@@ -68,7 +68,7 @@ type GinJWTMiddleware struct {
 	Unauthorized func(c *gin.Context, code int, message string)
 
 	// User can define own LoginResponse func.
-	LoginResponse func(c *gin.Context, code int, message string, time time.Time)
+	LoginResponse func(c *gin.Context, code int, message string, refreshTokenString string, time time.Time)
 
 	// User can define own LogoutResponse func.
 	LogoutResponse func(c *gin.Context, code int)
@@ -338,11 +338,12 @@ func (mw *GinJWTMiddleware) MiddlewareInit() error {
 	}
 
 	if mw.LoginResponse == nil {
-		mw.LoginResponse = func(c *gin.Context, code int, token string, expire time.Time) {
+		mw.LoginResponse = func(c *gin.Context, code int, token, refreshToken string, expire time.Time) {
 			c.JSON(http.StatusOK, gin.H{
-				"code":   http.StatusOK,
-				"token":  token,
-				"expire": expire.Format(time.RFC3339),
+				"code":         http.StatusOK,
+				"token":        token,
+				"refreshToken": refreshToken,
+				"expire":       expire.Format(time.RFC3339),
 			})
 		}
 	}
@@ -517,6 +518,18 @@ func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
 		return
 	}
 
+	mm, _ := time.ParseDuration("10m")
+	refreshExpire := expire.Add(mm)
+	claims["exp"] = refreshExpire.Unix()
+	claims["orig_iat"] = mw.TimeFunc().Unix()
+
+	refreshTokenString, err := mw.signedString(token)
+
+	if err != nil {
+		mw.unauthorized(c, http.StatusUnauthorized, mw.HTTPStatusMessageFunc(ErrFailedTokenCreation, c))
+		return
+	}
+
 	// set cookie
 	if mw.SendCookie {
 		expireCookie := mw.TimeFunc().Add(mw.CookieMaxAge)
@@ -537,7 +550,7 @@ func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
 		)
 	}
 
-	mw.LoginResponse(c, http.StatusOK, tokenString, expire)
+	mw.LoginResponse(c, http.StatusOK, tokenString, refreshTokenString, expire)
 }
 
 // LogoutHandler can be used by clients to remove the jwt cookie (if set)
