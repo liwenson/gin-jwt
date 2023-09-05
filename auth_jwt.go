@@ -343,19 +343,19 @@ func (mw *GinJWTMiddleware) MiddlewareInit() error {
 		}
 	}
 
-	if mw.LoginResponse == nil {
-
-		if mw.BothToken {
-			mw.LoginResponse2 = func(c *gin.Context, code int, token, refreshToken string, expire time.Time) {
-				c.JSON(http.StatusOK, gin.H{
-					"code":         http.StatusOK,
-					"token":        token,
-					"refreshToken": refreshToken,
-					"expire":       expire.Format(time.RFC3339),
-				})
-			}
+	if mw.LoginResponse2 == nil {
+		mw.LoginResponse2 = func(c *gin.Context, code int, token, refreshToken string, expire time.Time) {
+			c.JSON(http.StatusOK, gin.H{
+				"code":         http.StatusOK,
+				"token":        token,
+				"refreshToken": refreshToken,
+				"expire":       expire.Format(time.RFC3339),
+			})
+			return
 		}
+	}
 
+	if mw.LoginResponse == nil {
 		mw.LoginResponse = func(c *gin.Context, code int, token string, expire time.Time) {
 			c.JSON(http.StatusOK, gin.H{
 				"code":   http.StatusOK,
@@ -509,7 +509,9 @@ func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
 		mw.unauthorized(c, http.StatusInternalServerError, mw.HTTPStatusMessageFunc(ErrMissingAuthenticatorFunc, c))
 		return
 	}
-
+	var (
+		refreshTokenString string
+	)
 	data, err := mw.Authenticator(c)
 	if err != nil {
 		mw.unauthorized(c, http.StatusUnauthorized, mw.HTTPStatusMessageFunc(err, c))
@@ -535,16 +537,19 @@ func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
 		return
 	}
 
-	mm, _ := time.ParseDuration("10m")
-	refreshExpire := expire.Add(mm)
-	claims["exp"] = refreshExpire.Unix()
-	claims["orig_iat"] = mw.TimeFunc().Unix()
+	if mw.BothToken {
+		mm, _ := time.ParseDuration("10m")
+		refreshExpire := expire.Add(mm)
+		claims["exp"] = refreshExpire.Unix()
+		claims["orig_iat"] = mw.TimeFunc().Unix()
 
-	refreshTokenString, err := mw.signedString(token)
+		refreshTokenString, err = mw.signedString(token)
 
-	if err != nil {
-		mw.unauthorized(c, http.StatusUnauthorized, mw.HTTPStatusMessageFunc(ErrFailedTokenCreation, c))
-		return
+		if err != nil {
+			mw.unauthorized(c, http.StatusUnauthorized, mw.HTTPStatusMessageFunc(ErrFailedTokenCreation, c))
+			return
+		}
+
 	}
 
 	// set cookie
@@ -566,10 +571,11 @@ func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
 			mw.CookieHTTPOnly,
 		)
 	}
-
 	if mw.BothToken {
 		mw.LoginResponse2(c, http.StatusOK, tokenString, refreshTokenString, expire)
+		return
 	}
+
 	mw.LoginResponse(c, http.StatusOK, tokenString, expire)
 }
 

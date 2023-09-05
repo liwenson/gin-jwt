@@ -227,7 +227,7 @@ func TestMissingAuthenticatorForLoginHandler(t *testing.T) {
 		})
 }
 
-func TestLoginHandler(t *testing.T) {
+func TestLoginHandler02(t *testing.T) {
 	// the middleware to test
 	cookieName := "jwt"
 	cookieDomain := "example.com"
@@ -238,6 +238,7 @@ func TestLoginHandler(t *testing.T) {
 			// Set custom claim, to be checked in Authorizator method
 			return MapClaims{"testkey": "testval", "exp": 0}
 		},
+		BothToken: true,
 		Authenticator: func(c *gin.Context) (interface{}, error) {
 			var loginVals Login
 			if binderr := c.ShouldBind(&loginVals); binderr != nil {
@@ -253,7 +254,7 @@ func TestLoginHandler(t *testing.T) {
 		Authorizator: func(user interface{}, c *gin.Context) bool {
 			return true
 		},
-		LoginResponse: func(c *gin.Context, code int, token, refreshToken string, t time.Time) {
+		LoginResponse2: func(c *gin.Context, code int, token, refreshToken string, t time.Time) {
 			cookie, err := c.Cookie("jwt")
 			if err != nil {
 				log.Println(err)
@@ -285,6 +286,7 @@ func TestLoginHandler(t *testing.T) {
 			"username": "admin",
 		}).
 		Run(handler, func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
+			fmt.Println("body ", r.Body.String())
 			message := gjson.Get(r.Body.String(), "message")
 
 			assert.Equal(t, ErrMissingLoginValues.Error(), message.String())
@@ -299,6 +301,7 @@ func TestLoginHandler(t *testing.T) {
 			"password": "test",
 		}).
 		Run(handler, func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
+			fmt.Println("body ", r.Body.String())
 			message := gjson.Get(r.Body.String(), "message")
 			assert.Equal(t, ErrFailedAuthentication.Error(), message.String())
 			assert.Equal(t, http.StatusUnauthorized, r.Code)
@@ -310,6 +313,102 @@ func TestLoginHandler(t *testing.T) {
 			"password": "admin",
 		}).
 		Run(handler, func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
+			fmt.Println("body ", r.Body.String())
+			message := gjson.Get(r.Body.String(), "message")
+			assert.Equal(t, "login successfully", message.String())
+			assert.Equal(t, http.StatusOK, r.Code)
+			//nolint:staticcheck
+			assert.True(t, strings.HasPrefix(r.HeaderMap.Get("Set-Cookie"), "jwt="))
+			//nolint:staticcheck
+			assert.True(t, strings.HasSuffix(r.HeaderMap.Get("Set-Cookie"), "; Path=/; Domain=example.com; Max-Age=3600"))
+		})
+}
+
+func TestLoginHandler(t *testing.T) {
+	// the middleware to test
+	cookieName := "jwt"
+	cookieDomain := "example.com"
+	authMiddleware, err := New(&GinJWTMiddleware{
+		Realm: "test zone",
+		Key:   key,
+		PayloadFunc: func(data interface{}) MapClaims {
+			// Set custom claim, to be checked in Authorizator method
+			return MapClaims{"testkey": "testval", "exp": 0}
+		},
+		Authenticator: func(c *gin.Context) (interface{}, error) {
+			var loginVals Login
+			if binderr := c.ShouldBind(&loginVals); binderr != nil {
+				return "", ErrMissingLoginValues
+			}
+			userID := loginVals.Username
+			password := loginVals.Password
+			if userID == "admin" && password == "admin" {
+				return userID, nil
+			}
+			return "", ErrFailedAuthentication
+		},
+		Authorizator: func(user interface{}, c *gin.Context) bool {
+			return true
+		},
+		LoginResponse: func(c *gin.Context, code int, token string, t time.Time) {
+			cookie, err := c.Cookie("jwt")
+			if err != nil {
+				log.Println(err)
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"code":    http.StatusOK,
+				"token":   token,
+				"expire":  t.Format(time.RFC3339),
+				"message": "login successfully",
+				"cookie":  cookie,
+			})
+		},
+		SendCookie:   true,
+		CookieName:   cookieName,
+		CookieDomain: cookieDomain,
+		TimeFunc:     func() time.Time { return time.Now().Add(time.Duration(5) * time.Minute) },
+	})
+
+	assert.NoError(t, err)
+
+	handler := ginHandler(authMiddleware)
+
+	r := gofight.New()
+
+	r.POST("/login").
+		SetJSON(gofight.D{
+			"username": "admin",
+		}).
+		Run(handler, func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
+			fmt.Println("body ", r.Body.String())
+			message := gjson.Get(r.Body.String(), "message")
+
+			assert.Equal(t, ErrMissingLoginValues.Error(), message.String())
+			assert.Equal(t, http.StatusUnauthorized, r.Code)
+			//nolint:staticcheck
+			assert.Equal(t, "application/json; charset=utf-8", r.HeaderMap.Get("Content-Type"))
+		})
+
+	r.POST("/login").
+		SetJSON(gofight.D{
+			"username": "admin",
+			"password": "test",
+		}).
+		Run(handler, func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
+			fmt.Println("body ", r.Body.String())
+			message := gjson.Get(r.Body.String(), "message")
+			assert.Equal(t, ErrFailedAuthentication.Error(), message.String())
+			assert.Equal(t, http.StatusUnauthorized, r.Code)
+		})
+
+	r.POST("/login").
+		SetJSON(gofight.D{
+			"username": "admin",
+			"password": "admin",
+		}).
+		Run(handler, func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
+			fmt.Println("body ", r.Body.String())
 			message := gjson.Get(r.Body.String(), "message")
 			assert.Equal(t, "login successfully", message.String())
 			assert.Equal(t, http.StatusOK, r.Code)
